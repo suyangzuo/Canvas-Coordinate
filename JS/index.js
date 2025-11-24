@@ -7,6 +7,7 @@ class 坐标系教程 {
     this.canvas.height = this.canvas.offsetHeight * this.dpr;
     this.ctx.scale(this.dpr, this.dpr);
     this.复选框 = {
+      坐标参考线: document.getElementById("坐标参考线"),
       坐标信息: document.getElementById("坐标信息"),
       坐标背景: document.getElementById("坐标背景"),
     };
@@ -31,11 +32,13 @@ class 坐标系教程 {
       正在缩放: false,
       正在旋转: false,
       拖动偏移: { x: 0, y: 0 },
-      缩放起始: { 宽度: 0, 高度: 0, x: 0, y: 0 },
+      缩放起始: { 宽度: 0, 高度: 0, x: 0, y: 0, 矩形中心X: 0, 矩形中心Y: 0 },
       旋转起始: { 角度: 0, x: 0, y: 0 },
       鼠标位置: { x: 0, y: 0 },
       缩放边: null,
-      旋转角: null,
+      缩放角: null,
+      缩放锚点: { x: 0, y: 0 }, // 局部坐标系中的锚点位置
+      Alt键按下: false, // Alt键状态
     };
 
     // 显示选项
@@ -43,6 +46,8 @@ class 坐标系教程 {
       世界坐标系: true,
       局部坐标系: true,
       坐标信息: true,
+      坐标参考线: true,
+      坐标背景: true,
     };
 
     // 初始绘制
@@ -65,6 +70,38 @@ class 坐标系教程 {
     window.addEventListener("mousemove", (e) => this.鼠标移动(e));
     this.canvas.addEventListener("mouseup", () => this.鼠标释放());
     this.canvas.addEventListener("mouseleave", () => this.鼠标释放());
+
+    // 监听键盘事件以检测Alt键
+    window.addEventListener("keydown", (e) => {
+      if (e.key === "Alt") {
+        e.preventDefault();
+        this.交互状态.Alt键按下 = true;
+      }
+    });
+    window.addEventListener("keyup", (e) => {
+      if (e.key === "Alt") {
+        this.交互状态.Alt键按下 = false;
+      }
+    });
+
+    // 页面失去焦点时，清除Alt键状态
+    window.addEventListener("blur", () => {
+      this.交互状态.Alt键按下 = false;
+    });
+
+    // 监听复选框状态变化，重新绘制场景
+    this.复选框.坐标参考线.addEventListener("change", () => {
+      this.显示选项.坐标参考线 = this.复选框.坐标参考线.checked;
+      this.绘制场景();
+    });
+    this.复选框.坐标信息.addEventListener("change", () => {
+      this.显示选项.坐标信息 = this.复选框.坐标信息.checked;
+      this.绘制场景();
+    });
+    this.复选框.坐标背景.addEventListener("change", () => {
+      this.显示选项.坐标背景 = this.复选框.坐标背景.checked;
+      this.绘制场景();
+    });
   }
 
   获取鼠标坐标(e) {
@@ -83,9 +120,9 @@ class 坐标系教程 {
     // 转换鼠标坐标到局部坐标系
     const dx = 鼠标位置.x - 矩形.x;
     const dy = 鼠标位置.y - 矩形.y;
-    const 角度 = (-矩形.旋转角度 * Math.PI) / 180;
-    const 局部X = dx * Math.cos(角度) - dy * Math.sin(角度);
-    const 局部Y = dx * Math.sin(角度) + dy * Math.cos(角度);
+    const 弧度 = (-矩形.旋转角度 * Math.PI) / 180;
+    const 局部X = dx * Math.cos(弧度) - dy * Math.sin(弧度);
+    const 局部Y = dx * Math.sin(弧度) + dy * Math.cos(弧度);
 
     const 半宽 = 矩形.宽度 / 2;
     const 半高 = 矩形.高度 / 2;
@@ -113,17 +150,40 @@ class 坐标系教程 {
         高度: 矩形.高度,
         x: 鼠标位置.x,
         y: 鼠标位置.y,
+        矩形中心X: 矩形.x,
+        矩形中心Y: 矩形.y,
       };
 
-      // 确定是哪个角
+      // 确定是哪个角，并设置缩放锚点为对角点，保存被拖拽角点的初始位置
+      // 注意：局部Y = 半高 是下边缘，局部Y = -半高 是上边缘
       if (Math.abs(局部X - 半宽) < 边界阈值 && Math.abs(局部Y - 半高) < 边界阈值) {
-        this.交互状态.缩放角 = "右上";
-      } else if (Math.abs(局部X + 半宽) < 边界阈值 && Math.abs(局部Y - 半高) < 边界阈值) {
-        this.交互状态.缩放角 = "左上";
-      } else if (Math.abs(局部X - 半宽) < 边界阈值 && Math.abs(局部Y + 半高) < 边界阈值) {
+        // 局部X ≈ 半宽（右），局部Y ≈ 半高（下）→ 右下角
         this.交互状态.缩放角 = "右下";
-      } else {
+        // 右下角的对角是左上角
+        this.交互状态.缩放锚点 = { x: -半宽, y: -半高 };
+        // 保存被拖拽角点的初始位置（右下角）
+        this.交互状态.被拖拽点初始位置 = { x: 半宽, y: 半高 };
+      } else if (Math.abs(局部X + 半宽) < 边界阈值 && Math.abs(局部Y - 半高) < 边界阈值) {
+        // 局部X ≈ -半宽（左），局部Y ≈ 半高（下）→ 左下角
         this.交互状态.缩放角 = "左下";
+        // 左下角的对角是右上角
+        this.交互状态.缩放锚点 = { x: 半宽, y: -半高 };
+        // 保存被拖拽角点的初始位置（左下角）
+        this.交互状态.被拖拽点初始位置 = { x: -半宽, y: 半高 };
+      } else if (Math.abs(局部X - 半宽) < 边界阈值 && Math.abs(局部Y + 半高) < 边界阈值) {
+        // 局部X ≈ 半宽（右），局部Y ≈ -半高（上）→ 右上角
+        this.交互状态.缩放角 = "右上";
+        // 右上角的对角是左下角
+        this.交互状态.缩放锚点 = { x: -半宽, y: 半高 };
+        // 保存被拖拽角点的初始位置（右上角）
+        this.交互状态.被拖拽点初始位置 = { x: 半宽, y: -半高 };
+      } else {
+        // 局部X ≈ -半宽（左），局部Y ≈ -半高（上）→ 左上角
+        this.交互状态.缩放角 = "左上";
+        // 左上角的对角是右下角
+        this.交互状态.缩放锚点 = { x: 半宽, y: 半高 };
+        // 保存被拖拽角点的初始位置（左上角）
+        this.交互状态.被拖拽点初始位置 = { x: -半宽, y: -半高 };
       }
     }
     // 检查是否点击在边缘上（缩放）
@@ -139,17 +199,37 @@ class 坐标系教程 {
         高度: 矩形.高度,
         x: 鼠标位置.x,
         y: 鼠标位置.y,
+        矩形中心X: 矩形.x,
+        矩形中心Y: 矩形.y,
       };
 
-      // 确定是哪条边
+      // 确定是哪条边，并设置缩放锚点为相对边的中点，保存被拖拽边缘点的初始位置
       if (Math.abs(局部X - 半宽) < 边界阈值 && Math.abs(局部Y) <= 半高) {
         this.交互状态.缩放边 = "右";
+        // 右边缘的相对边是左边缘中点
+        this.交互状态.缩放锚点 = { x: -半宽, y: 0 };
+        // 保存被拖拽边缘点的初始位置（右边缘，Y坐标保持点击时的位置）
+        this.交互状态.被拖拽点初始位置 = { x: 半宽, y: 局部Y };
       } else if (Math.abs(局部X + 半宽) < 边界阈值 && Math.abs(局部Y) <= 半高) {
         this.交互状态.缩放边 = "左";
+        // 左边缘的相对边是右边缘中点
+        this.交互状态.缩放锚点 = { x: 半宽, y: 0 };
+        // 保存被拖拽边缘点的初始位置（左边缘，Y坐标保持点击时的位置）
+        this.交互状态.被拖拽点初始位置 = { x: -半宽, y: 局部Y };
       } else if (Math.abs(局部Y - 半高) < 边界阈值 && Math.abs(局部X) <= 半宽) {
-        this.交互状态.缩放边 = "上";
-      } else {
+        // 局部Y ≈ 半高（下边缘）
         this.交互状态.缩放边 = "下";
+        // 下边缘的相对边是上边缘中点
+        this.交互状态.缩放锚点 = { x: 0, y: -半高 };
+        // 保存被拖拽边缘点的初始位置（下边缘，X坐标保持点击时的位置）
+        this.交互状态.被拖拽点初始位置 = { x: 局部X, y: 半高 };
+      } else {
+        // 局部Y ≈ -半高（上边缘）
+        this.交互状态.缩放边 = "上";
+        // 上边缘的相对边是下边缘中点
+        this.交互状态.缩放锚点 = { x: 0, y: 半高 };
+        // 保存被拖拽边缘点的初始位置（上边缘，X坐标保持点击时的位置）
+        this.交互状态.被拖拽点初始位置 = { x: 局部X, y: -半高 };
       }
     }
     // 检查是否点击在矩形内部（拖动）
@@ -174,9 +254,9 @@ class 坐标系教程 {
       // 转换鼠标坐标到局部坐标系
       const dx = 鼠标位置.x - 矩形.x;
       const dy = 鼠标位置.y - 矩形.y;
-      const 角度 = (-矩形.旋转角度 * Math.PI) / 180;
-      const 局部X = dx * Math.cos(角度) - dy * Math.sin(角度);
-      const 局部Y = dx * Math.sin(角度) + dy * Math.cos(角度);
+      const 弧度 = (-矩形.旋转角度 * Math.PI) / 180;
+      const 局部X = dx * Math.cos(弧度) - dy * Math.sin(弧度);
+      const 局部Y = dx * Math.sin(弧度) + dy * Math.cos(弧度);
 
       const 半宽 = 矩形.宽度 / 2;
       const 半高 = 矩形.高度 / 2;
@@ -250,40 +330,138 @@ class 坐标系教程 {
     // 处理缩放
     else if (this.交互状态.正在缩放) {
       const 缩放起始 = this.交互状态.缩放起始;
-      const dx = 鼠标位置.x - 缩放起始.x;
-      const dy = 鼠标位置.y - 缩放起始.y;
+      // 将鼠标位置转换为局部坐标系（相对于开始缩放时的矩形中心）
+      const dx = 鼠标位置.x - 缩放起始.矩形中心X;
+      const dy = 鼠标位置.y - 缩放起始.矩形中心Y;
+      const 弧度 = (-this.矩形.旋转角度 * Math.PI) / 180;
+      const 鼠标局部X = dx * Math.cos(弧度) - dy * Math.sin(弧度);
+      const 鼠标局部Y = dx * Math.sin(弧度) + dy * Math.cos(弧度);
 
-      // 将鼠标移动转换为局部坐标系中的变化
-      const 角度 = (-this.矩形.旋转角度 * Math.PI) / 180;
-      const 局部Dx = dx * Math.cos(角度) - dy * Math.sin(角度);
-      const 局部Dy = dx * Math.sin(角度) + dy * Math.cos(角度);
+      // 计算鼠标移动的增量（相对于开始时的鼠标位置）
+      const 起始Dx = 缩放起始.x - 缩放起始.矩形中心X;
+      const 起始Dy = 缩放起始.y - 缩放起始.矩形中心Y;
+      const 起始鼠标局部X = 起始Dx * Math.cos(弧度) - 起始Dy * Math.sin(弧度);
+      const 起始鼠标局部Y = 起始Dx * Math.sin(弧度) + 起始Dy * Math.cos(弧度);
+      const 局部Dx = 鼠标局部X - 起始鼠标局部X;
+      const 局部Dy = 鼠标局部Y - 起始鼠标局部Y;
+
+      // 如果Alt键按下，使用矩形中心作为锚点，否则使用原来的锚点
+      const 使用中心锚点 = this.交互状态.Alt键按下;
+      const 锚点 = 使用中心锚点 ? { x: 0, y: 0 } : this.交互状态.缩放锚点;
+      const 被拖拽点初始位置 = this.交互状态.被拖拽点初始位置;
+      const 角度 = (this.矩形.旋转角度 * Math.PI) / 180;
 
       // 根据拖动的边调整矩形大小
       if (this.交互状态.缩放边) {
-        if (this.交互状态.缩放边 === "右") {
-          this.矩形.宽度 = Math.max(50, 缩放起始.宽度 + 局部Dx * 2);
-        } else if (this.交互状态.缩放边 === "左") {
-          this.矩形.宽度 = Math.max(50, 缩放起始.宽度 - 局部Dx * 2);
-        } else if (this.交互状态.缩放边 === "上") {
-          this.矩形.高度 = Math.max(50, 缩放起始.高度 + 局部Dy * 2);
-        } else if (this.交互状态.缩放边 === "下") {
-          this.矩形.高度 = Math.max(50, 缩放起始.高度 - 局部Dy * 2);
+        let 被拖拽点局部X, 被拖拽点局部Y;
+
+        if (使用中心锚点) {
+          // Alt键按下：被拖拽点直接跟随鼠标位置
+          if (this.交互状态.缩放边 === "右" || this.交互状态.缩放边 === "左") {
+            // 左右边缘：X跟随鼠标，Y保持初始值
+            被拖拽点局部X = 鼠标局部X;
+            被拖拽点局部Y = 被拖拽点初始位置.y;
+          } else {
+            // 上下边缘：Y跟随鼠标，X保持初始值
+            被拖拽点局部X = 被拖拽点初始位置.x;
+            被拖拽点局部Y = 鼠标局部Y;
+          }
+        } else {
+          // 正常模式：基于初始位置+增量
+          if (this.交互状态.缩放边 === "右") {
+            // 右边缘：被拖拽点X = 初始X + 增量，Y保持初始值
+            被拖拽点局部X = 被拖拽点初始位置.x + 局部Dx;
+            被拖拽点局部Y = 被拖拽点初始位置.y;
+          } else if (this.交互状态.缩放边 === "左") {
+            // 左边缘：被拖拽点X = 初始X + 增量，Y保持初始值
+            被拖拽点局部X = 被拖拽点初始位置.x + 局部Dx;
+            被拖拽点局部Y = 被拖拽点初始位置.y;
+          } else if (this.交互状态.缩放边 === "上") {
+            // 上边缘：被拖拽点Y = 初始Y + 增量，X保持初始值
+            被拖拽点局部X = 被拖拽点初始位置.x;
+            被拖拽点局部Y = 被拖拽点初始位置.y + 局部Dy;
+          } else {
+            // 下边缘：被拖拽点Y = 初始Y + 增量，X保持初始值
+            被拖拽点局部X = 被拖拽点初始位置.x;
+            被拖拽点局部Y = 被拖拽点初始位置.y + 局部Dy;
+          }
+        }
+
+        // 计算新尺寸
+        if (this.交互状态.缩放边 === "右" || this.交互状态.缩放边 === "左") {
+          const 新宽度 = Math.max(50, Math.abs(被拖拽点局部X - 锚点.x));
+          if (使用中心锚点) {
+            // Alt键按下：以中心为锚点，中心位置不变，宽度 = |被拖拽点局部X| * 2
+            this.矩形.x = 缩放起始.矩形中心X;
+            this.矩形.y = 缩放起始.矩形中心Y;
+            this.矩形.宽度 = Math.max(50, Math.abs(被拖拽点局部X) * 2);
+          } else {
+            // 正常模式：以相对边中点为锚点
+            const 锚点世界X = 缩放起始.矩形中心X + 锚点.x * Math.cos(角度) - 锚点.y * Math.sin(角度);
+            const 锚点世界Y = 缩放起始.矩形中心Y + 锚点.x * Math.sin(角度) + 锚点.y * Math.cos(角度);
+            const 被拖拽点世界X = 缩放起始.矩形中心X + 被拖拽点局部X * Math.cos(角度) - 被拖拽点局部Y * Math.sin(角度);
+            const 被拖拽点世界Y = 缩放起始.矩形中心Y + 被拖拽点局部X * Math.sin(角度) + 被拖拽点局部Y * Math.cos(角度);
+            // 新中心是世界坐标系中锚点和被拖拽点的中点，但Y坐标保持不变
+            this.矩形.x = (锚点世界X + 被拖拽点世界X) / 2;
+            this.矩形.y = 缩放起始.矩形中心Y; // Y坐标保持不变
+            this.矩形.宽度 = 新宽度;
+          }
+        } else {
+          const 新高度 = Math.max(50, Math.abs(被拖拽点局部Y - 锚点.y));
+          if (使用中心锚点) {
+            // Alt键按下：以中心为锚点，中心位置不变，高度 = |被拖拽点局部Y| * 2
+            this.矩形.x = 缩放起始.矩形中心X;
+            this.矩形.y = 缩放起始.矩形中心Y;
+            this.矩形.高度 = Math.max(50, Math.abs(被拖拽点局部Y) * 2);
+          } else {
+            // 正常模式：以相对边中点为锚点
+            const 锚点世界X = 缩放起始.矩形中心X + 锚点.x * Math.cos(角度) - 锚点.y * Math.sin(角度);
+            const 锚点世界Y = 缩放起始.矩形中心Y + 锚点.x * Math.sin(角度) + 锚点.y * Math.cos(角度);
+            const 被拖拽点世界X = 缩放起始.矩形中心X + 被拖拽点局部X * Math.cos(角度) - 被拖拽点局部Y * Math.sin(角度);
+            const 被拖拽点世界Y = 缩放起始.矩形中心Y + 被拖拽点局部X * Math.sin(角度) + 被拖拽点局部Y * Math.cos(角度);
+            // 新中心是世界坐标系中锚点和被拖拽点的中点，但X坐标保持不变
+            this.矩形.x = 缩放起始.矩形中心X; // X坐标保持不变
+            this.矩形.y = (锚点世界Y + 被拖拽点世界Y) / 2;
+            this.矩形.高度 = 新高度;
+          }
         }
       }
       // 根据拖动的角调整矩形大小
       else if (this.交互状态.缩放角) {
-        if (this.交互状态.缩放角 === "右上") {
-          this.矩形.宽度 = Math.max(50, 缩放起始.宽度 + 局部Dx * 2);
-          this.矩形.高度 = Math.max(50, 缩放起始.高度 + 局部Dy * 2);
-        } else if (this.交互状态.缩放角 === "左上") {
-          this.矩形.宽度 = Math.max(50, 缩放起始.宽度 - 局部Dx * 2);
-          this.矩形.高度 = Math.max(50, 缩放起始.高度 + 局部Dy * 2);
-        } else if (this.交互状态.缩放角 === "右下") {
-          this.矩形.宽度 = Math.max(50, 缩放起始.宽度 + 局部Dx * 2);
-          this.矩形.高度 = Math.max(50, 缩放起始.高度 - 局部Dy * 2);
-        } else if (this.交互状态.缩放角 === "左下") {
-          this.矩形.宽度 = Math.max(50, 缩放起始.宽度 - 局部Dx * 2);
-          this.矩形.高度 = Math.max(50, 缩放起始.高度 - 局部Dy * 2);
+        let 被拖拽点局部X, 被拖拽点局部Y;
+
+        if (使用中心锚点) {
+          // Alt键按下：被拖拽角点直接跟随鼠标位置
+          被拖拽点局部X = 鼠标局部X;
+          被拖拽点局部Y = 鼠标局部Y;
+        } else {
+          // 正常模式：被拖拽的角点位置 = 初始位置 + 增量
+          被拖拽点局部X = 被拖拽点初始位置.x + 局部Dx;
+          被拖拽点局部Y = 被拖拽点初始位置.y + 局部Dy;
+        }
+
+        // 计算新尺寸
+        const 新宽度 = Math.max(10, Math.abs(被拖拽点局部X - 锚点.x));
+        const 新高度 = Math.max(10, Math.abs(被拖拽点局部Y - 锚点.y));
+
+        if (使用中心锚点) {
+          // Alt键按下：以中心为锚点，中心位置不变，尺寸 = |被拖拽点局部坐标| * 2
+          this.矩形.x = 缩放起始.矩形中心X;
+          this.矩形.y = 缩放起始.矩形中心Y;
+          this.矩形.宽度 = Math.max(10, Math.abs(被拖拽点局部X) * 2);
+          this.矩形.高度 = Math.max(10, Math.abs(被拖拽点局部Y) * 2);
+        } else {
+          // 正常模式：以对角点为锚点
+          const 锚点世界X = 缩放起始.矩形中心X + 锚点.x * Math.cos(角度) - 锚点.y * Math.sin(角度);
+          const 锚点世界Y = 缩放起始.矩形中心Y + 锚点.x * Math.sin(角度) + 锚点.y * Math.cos(角度);
+          const 被拖拽点世界X = 缩放起始.矩形中心X + 被拖拽点局部X * Math.cos(角度) - 被拖拽点局部Y * Math.sin(角度);
+          const 被拖拽点世界Y = 缩放起始.矩形中心Y + 被拖拽点局部X * Math.sin(角度) + 被拖拽点局部Y * Math.cos(角度);
+
+          // 新中心是世界坐标系中锚点和被拖拽点的中点
+          this.矩形.x = (锚点世界X + 被拖拽点世界X) / 2;
+          this.矩形.y = (锚点世界Y + 被拖拽点世界Y) / 2;
+          this.矩形.宽度 = 新宽度;
+          this.矩形.高度 = 新高度;
         }
       }
 
@@ -324,6 +502,10 @@ class 坐标系教程 {
     // 绘制坐标信息（始终显示）
     if (this.显示选项.坐标信息) {
       this.绘制坐标信息();
+    }
+
+    if (this.显示选项.坐标参考线) {
+      this.绘制坐标参考线();
     }
   }
 
@@ -592,9 +774,9 @@ class 坐标系教程 {
       // 计算鼠标在局部坐标系中的位置
       const dx = this.鼠标坐标.x - 矩形.x;
       const dy = this.鼠标坐标.y - 矩形.y;
-      const 角度 = (-矩形.旋转角度 * Math.PI) / 180;
-      局部X = dx * Math.cos(角度) - dy * Math.sin(角度);
-      局部Y = dx * Math.sin(角度) + dy * Math.cos(角度);
+      const 弧度 = (-矩形.旋转角度 * Math.PI) / 180;
+      局部X = dx * Math.cos(弧度) - dy * Math.sin(弧度);
+      局部Y = dx * Math.sin(弧度) + dy * Math.cos(弧度);
     }
 
     this.ctx.save();
@@ -626,7 +808,7 @@ class 坐标系教程 {
         y = this.canvas.offsetHeight - 鼠标与文本距离 * 4 - 行距 / 2;
       }
 
-      if (this.复选框.坐标背景.checked) {
+      if (this.显示选项.坐标背景) {
         const 最大宽度 = this.ctx.measureText("矩形尺寸: 1000 × 1000").width;
         this.ctx.beginPath();
         this.ctx.fillStyle = "#000a";
@@ -669,7 +851,7 @@ class 坐标系教程 {
       );
 
       // 矩形信息
-      const x坐标垂直坐标 = y + 鼠标与文本距离 * 2 + 10;
+      const x坐标垂直坐标 = y + 鼠标与文本距离 + 行距 * 2;
       const 矩形信息标题宽度 = this.ctx.measureText("矩形信息").width;
       const 矩形坐标x宽度 = this.ctx.measureText(`${Math.floor(矩形.x)}`).width;
       const 矩形旋转值宽度 = this.ctx.measureText(`${Math.floor(矩形.旋转角度)}`).width;
@@ -697,7 +879,7 @@ class 坐标系教程 {
         x - 世界总宽度 / 2 + 矩形信息标题宽度 + 冒号空格宽度,
         x坐标垂直坐标 + 行距
       );
-      this.ctx.fillStyle = "lightblue";
+      this.ctx.fillStyle = "#4cf";
       this.ctx.fillText(
         "°",
         x - 世界总宽度 / 2 + 矩形信息标题宽度 + 冒号空格宽度 + 矩形旋转值宽度,
@@ -730,6 +912,42 @@ class 坐标系教程 {
       this.ctx.fillText(`旋转角度: ${Math.floor(矩形.旋转角度)}°`, x - 100, y + 18);
       this.ctx.fillText(`尺寸: ${Math.floor(矩形.宽度)} × ${Math.floor(矩形.高度)}`, x - 100, y + 36);
     }
+
+    this.ctx.restore();
+  }
+
+  绘制坐标参考线() {
+    if (!this.复选框.坐标参考线.checked) return;
+
+    // 如果鼠标不在画布内，不绘制参考线
+    if (this.鼠标坐标.x === null || this.鼠标坐标.y === null) return;
+
+    const 鼠标X = this.鼠标坐标.x;
+    const 鼠标Y = this.鼠标坐标.y;
+    const 画布宽度 = this.canvas.offsetWidth;
+    const 画布高度 = this.canvas.offsetHeight;
+
+    // 确保鼠标位置在画布范围内
+    if (鼠标X < 0 || 鼠标X > 画布宽度 || 鼠标Y < 0 || 鼠标Y > 画布高度) return;
+
+    this.ctx.save();
+
+    // 设置虚线样式
+    this.ctx.setLineDash([5, 5]);
+    this.ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+    this.ctx.lineWidth = 1;
+
+    // 绘制垂直向上的虚线（从鼠标位置到画布顶部）
+    this.ctx.beginPath();
+    this.ctx.moveTo(鼠标X, 鼠标Y);
+    this.ctx.lineTo(鼠标X, 0);
+    this.ctx.stroke();
+
+    // 绘制水平向左的虚线（从鼠标位置到画布左边缘）
+    this.ctx.beginPath();
+    this.ctx.moveTo(鼠标X, 鼠标Y);
+    this.ctx.lineTo(0, 鼠标Y);
+    this.ctx.stroke();
 
     this.ctx.restore();
   }

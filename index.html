@@ -5,6 +5,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Canvas 坐标系</title>
+  <link rel="icon" href="./Images/coordinates.svg" type="image/svg+xml">
   <link rel="stylesheet" href="./CSS/index.css" />
   <script src="./JS/index.js" defer></script>
 </head>
@@ -13,6 +14,11 @@
   <div class="Canvas容器">
     <canvas id="canvas"></canvas>
     <div class="控制区">
+      <label class="开关" for="坐标参考线">
+        <input type="checkbox" id="坐标参考线" class="开关输入" checked />
+        <span class="开关滑块"></span>
+        <span class="开关文本">坐标参考线</span>
+      </label>
       <label class="开关" for="坐标信息">
         <input type="checkbox" id="坐标信息" class="开关输入" checked />
         <span class="开关滑块"></span>
